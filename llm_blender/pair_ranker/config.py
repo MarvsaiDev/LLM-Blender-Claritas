@@ -1,11 +1,13 @@
 from dataclasses import dataclass, field
+from dataclasses_json import dataclass_json
 
+@dataclass_json
 @dataclass
 class RankerConfig:
     ranker_type:str = field(
         default="pairranker",
         metadata={"help": "Ranker type, pairranker or reranker \
-                  choices: summareranker, dual, pairranker"},
+                  choices: summareranker, dual, pairranker, other;"},
     )
     model_type:str = field(default="deberta",
         metadata={"help": "Model type, deberta or roberta"}
@@ -19,10 +21,10 @@ class RankerConfig:
     load_checkpoint:str = field(default=None,
         metadata={"help": "Load checkpoint path"}
     )
-    source_max_length:int = field(default=128,
+    source_maxlength:int = field(default=128,
         metadata={"help": "Max length of the source sequence"}
     )
-    candidate_max_length:int = field(default=128,
+    candidate_maxlength:int = field(default=128,
         metadata={"help": "Max length of the candidate sequence"}
     )
     n_tasks:int = field(default=1,

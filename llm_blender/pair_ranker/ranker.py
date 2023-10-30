@@ -142,8 +142,8 @@ class SummaReranker(nn.Module):
         pred_scores = torch.mean(pred_scores, dim=-1).detach().reshape(batch_size, n_candidates)
         pred_scores = self.sigmoid(pred_scores)
         outputs = {
-            "loss": loss,
-            "preds": pred_scores,
+            'loss': loss,
+            'logits': pred_scores,
         }
         return outputs
     
@@ -282,8 +282,8 @@ class DualReranker(nn.Module):
             loss = torch.tensor(0.0).to(source_ids.device)
 
         outputs = {
-            "loss": loss,
-            "preds": sim_mat,
+            'loss': loss,
+            'logits': sim_mat,
         }
         return outputs
 
@@ -363,6 +363,15 @@ class CrossCompareReranker(nn.Module):
             cls_loss += F.mse_loss(left_pred_scores, left_scores)
             cls_loss += F.mse_loss(right_pred_scores, right_scores)
             cls_loss -= (2 * (left_pred_scores - right_pred_scores) * (left_scores - right_scores)).mean()
+        elif self.loss_type == "open_instruct_BCE":
+            assert all((left_scores == 1.0) + (left_scores == 0.0)), "open_instruct_BCE only support 0/1 labels"
+            assert all((right_scores == 1.0) + (right_scores == 0.0)), "open_instruct_BCE only support 0/1 labels"
+            left_labels = (left_scores == 1.0).float()
+            right_labels = (right_scores == 1.0).float()
+            cls_loss = torch.tensor(0.0, device=device)
+            cls_loss += F.binary_cross_entropy_with_logits(left_pred_scores, left_labels)
+            cls_loss += F.binary_cross_entropy_with_logits(right_pred_scores, right_labels)
+            cls_loss /= 2
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
         loss += cls_loss
@@ -454,6 +463,10 @@ class CrossCompareReranker(nn.Module):
                 cand1_ids, cand1_attention_mask,
                 cand2_ids, cand2_attention_mask,
             )
+            # trim batch padding ids
+            keep_column_mask = attention_mask.ne(0).any(dim=0)
+            input_ids = input_ids[:, keep_column_mask]
+            attention_mask = attention_mask[:, keep_column_mask]
             outputs = self.pretrained_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -476,8 +489,8 @@ class CrossCompareReranker(nn.Module):
 
         preds = (left_pred_scores - right_pred_scores).mean(dim=-1)
         outputs = {
-            "loss": loss,
-            "preds": preds,
+            'loss': loss,
+            'logits': preds,
         }
         return outputs
 
@@ -500,7 +513,12 @@ class CrossCompareReranker(nn.Module):
         unique_idx = []
         unique_scores = []
         for idx, score in enumerate(scores.mean(dim=-1)):
-            if score not in unique_scores:
+            is_new = True
+            for u_idx in unique_idx:
+                if torch.all(candidate_ids[u_idx] == candidate_ids[idx]):
+                    is_new = False
+                    break
+            if is_new:
                 unique_idx.append(idx)
                 unique_scores.append(score)
         unique_idx = torch.tensor(unique_idx, device=device)
@@ -682,7 +700,7 @@ class CrossCompareReranker(nn.Module):
                     left_scores, right_scores,
                 )
                 loss += _outputs['loss']
-                preds = _outputs['preds']
+                preds = _outputs['logits']
                 # right-left
                 _outputs = self._forward(
                     source_ids, source_attention_mask,
@@ -691,7 +709,7 @@ class CrossCompareReranker(nn.Module):
                     right_scores, left_scores,
                 )
                 loss += _outputs['loss']
-                preds_inv = -_outputs['preds']
+                preds_inv = -_outputs['logits']
 
                 permu[:, j] = torch.where(preds + preds_inv <= 0, cur_idx, next_idx)
                 permu[:, j+1] = torch.where(preds + preds_inv > 0, cur_idx, next_idx)
@@ -753,11 +771,11 @@ class CrossCompareReranker(nn.Module):
                     left_scores, right_scores,
                 )
                 loss += _outputs['loss']
-                preds = _outputs['preds']
+                preds = _outputs['logits']
                 compare_results[:, i, j] = preds
 
         outputs['loss'] = loss / (n_candidates * (n_candidates - 1))
-        outputs['preds'] = compare_results # [batch_size, n_candidates, n_candidates]
+        outputs['logits'] = compare_results # [batch_size, n_candidates, n_candidates]
 
         return outputs
 

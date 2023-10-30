@@ -21,7 +21,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         item = self.data[index]
-        target = item['output']
+        target = item['output'] if 'output' in item else None
         source = item['instruction'] + item['input']
         if isinstance(target, list):
             target = target[0]
@@ -113,7 +113,8 @@ def check_and_normalize_scores(examples):
     for example in examples:
         for candidate in example['candidates']:
             for task in task_names:
-                candidate['scores'][task] *= metric_weights[task]
+                if task in metric_weights:
+                    candidate['scores'][task] *= metric_weights[task]
     return examples
 
 
